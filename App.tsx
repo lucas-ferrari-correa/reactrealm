@@ -1,131 +1,160 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, { useEffect, useState } from 'react';
+import { Button, FlatList, SafeAreaView, Text, TextInput, View } from 'react-native';
+import { getRealm } from './src/database/realm';
+import { BSON, Realm } from 'realm';
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
-import {
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
-
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
-
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
-
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
+interface User {
+  _id: BSON.ObjectId;
+  name: string;
+  age: number;
 }
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+export default function App() {
+  const [realm, setRealm] = useState<Realm | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [name, setName] = useState('');
+  const [age, setAge] = useState('');
+  const [selectedId, setSelectedId] = useState<BSON.ObjectId | null>(null);
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  useEffect(() => {
+    (async () => {
+      const realmInstance = await getRealm();
+      setRealm(realmInstance);
+      loadUsers(realmInstance);
+
+      // Cleanup
+      return () => {
+        realmInstance.close();
+      };
+    })();
+  }, []);
+
+  const loadUsers = (realmInstance: Realm) => {
+    const data = realmInstance.objects<User>('User');
+    setUsers([...data]);
   };
 
-  /*
-   * To keep the template simple and small we're adding padding to prevent view
-   * from rendering under the System UI.
-   * For bigger apps the recommendation is to use `react-native-safe-area-context`:
-   * https://github.com/AppAndFlow/react-native-safe-area-context
-   *
-   * You can read more about it here:
-   * https://github.com/react-native-community/discussions-and-proposals/discussions/827
-   */
-  const safePadding = '5%';
+  const handleAddUser = () => {
+    if (!name || !age) {return;}
+
+    realm?.write(() => {
+      realm.create('User', {
+        _id: new BSON.ObjectId(),
+        name,
+        age: parseInt(age),
+      });
+    });
+
+    setName('');
+    setAge('');
+    loadUsers(realm!);
+  };
+
+  const handleUpdateUser = () => {
+    if (!selectedId) {return;}
+
+    realm?.write(() => {
+      const user = realm.objectForPrimaryKey<User>('User', selectedId);
+      if (user) {
+        user.name = name;
+        user.age = parseInt(age);
+      }
+    });
+
+    setName('');
+    setAge('');
+    setSelectedId(null);
+    loadUsers(realm!);
+  };
+
+  const handleDeleteUser = (id: BSON.ObjectId) => {
+    realm?.write(() => {
+      const user = realm.objectForPrimaryKey<User>('User', id);
+      if (user) {
+        realm.delete(user);
+      }
+    });
+
+    loadUsers(realm!);
+  };
+
+  const handleSelectUser = (user: User) => {
+    setSelectedId(user._id);
+    setName(user.name);
+    setAge(user.age.toString());
+  };
 
   return (
-    <View style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        style={backgroundStyle}>
-        <View style={{paddingRight: safePadding}}>
-          <Header/>
-        </View>
-        <View
+    <SafeAreaView style={{ flex: 1, padding: 16 }}>
+      <Text style={{ fontSize: 24, fontWeight: 'bold' }}>
+        Realm - CRUD Example
+      </Text>
+
+      <View style={{ marginVertical: 16 }}>
+        <TextInput
+          placeholder="Name"
+          value={name}
+          onChangeText={setName}
           style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-            paddingHorizontal: safePadding,
-            paddingBottom: safePadding,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </View>
+            borderWidth: 1,
+            borderColor: '#ccc',
+            padding: 8,
+            marginBottom: 8,
+            borderRadius: 4,
+          }}
+        />
+        <TextInput
+          placeholder="Age"
+          value={age}
+          keyboardType="numeric"
+          onChangeText={setAge}
+          style={{
+            borderWidth: 1,
+            borderColor: '#ccc',
+            padding: 8,
+            marginBottom: 8,
+            borderRadius: 4,
+          }}
+        />
+
+        {selectedId ? (
+          <Button title="Update User" onPress={handleUpdateUser} />
+        ) : (
+          <Button title="Add User" onPress={handleAddUser} />
+        )}
+      </View>
+
+      <FlatList
+        data={users}
+        keyExtractor={(item) => item._id.toHexString()}
+        renderItem={({ item }) => (
+          <View
+            style={{
+              padding: 12,
+              marginVertical: 4,
+              backgroundColor: '#f1f1f1',
+              borderRadius: 4,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <View>
+              <Text style={{ fontSize: 16 }}>{item.name}</Text>
+              <Text style={{ color: '#666' }}>{item.age} years old</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Button title="Edit" onPress={() => handleSelectUser(item)} />
+              <Button
+                title="Delete"
+                color="red"
+                onPress={() => handleDeleteUser(item._id)}
+              />
+            </View>
+          </View>
+        )}
+      />
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
-  },
-});
-
-export default App;
